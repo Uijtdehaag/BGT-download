@@ -1,5 +1,6 @@
 # BGT-download - CODE VIBE WITH CLAUDE
 Download een deel van de Basiskaart Grootschalige Topografie met deze BGT viewer.
+Bekijk de demo: https://uijtdehaag.github.io/BGT-download/
 
 # Herbruikbare AI prompt — BGT download webapp
 
