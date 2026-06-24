@@ -58,7 +58,7 @@ Exporteer de zichtbare (bronhouder-gefilterde) selectie. Kolommen = `objecttype`
 - Statusvenster met voortgangsbalk, succes (incl. "download opnieuw"-link) en foutmeldingen.
 
 ## Info-popup
-Een "i"-knop opent een modal met uitleg over de app, de databronnen (CartoDB, PDOK Ortho, PDOK BGT WMTS, PDOK BGT Features OGC API), de objecttypen, de CSV-export en de download-service. **Geen Postcode6/CBS-laag noemen** (die zit er niet in).
+Een "i"-knop opent een modal met uitleg over de app, de databronnen (CartoDB, PDOK Ortho, PDOK BGT WMTS, PDOK BGT Features OGC API), de objecttypen, de CSV-export en de download-service. 
 
 ## Kwaliteitseisen
 - Robuuste error handling (try/catch) rond alle fetches; faal stil per objecttype en ga door.
