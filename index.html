@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BGT download</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #1B4F8A;
+      --blue-light: #2563B0;
+      --orange:     #E8610A;
+      --orange-lt:  #FFF0E8;
+      --bg:         #F2F4F7;
+      --surface:    #FFFFFF;
+      --border:     #D8DCE6;
+      --text:       #1A1A2E;
+      --muted:      #6B7280;
+      --success:    #16A34A;
+      --radius:     6px;
+      --sidebar-w:  340px;
+      --mono:       'JetBrains Mono', monospace;
+      --sans:       'Inter', sans-serif;
+    }
+
+    html, body { height: 100%; font-family: var(--sans); color: var(--text); background: var(--bg); }
+
+    /* ─── Layout ─── */
+    #app { display: flex; height: 100vh; overflow: hidden; position: relative; }
+
+    #sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      z-index: 20;
+      transition: transform .28s cubic-bezier(.4,0,.2,1);
+      flex-shrink: 0;
+    }
+    #sidebar.collapsed {
+      transform: translateX(calc(-1 * var(--sidebar-w)));
+      box-shadow: none;
+    }
+
+    /* Toggle tab — zichtbaar aan zijkant van sidebar */
+    #sidebar-toggle {
+      position: absolute;
+      top: 50%;
+      left: var(--sidebar-w);
+      transform: translateY(-50%);
+      z-index: 25;
+      width: 22px; height: 52px;
+      background: var(--blue);
+      border: none; border-radius: 0 6px 6px 0;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 2px 0 8px rgba(0,0,0,.15);
+      transition: left .28s cubic-bezier(.4,0,.2,1), background .15s;
+    }
+    #sidebar-toggle:hover { background: var(--blue-light); }
+    #sidebar-toggle svg { width: 12px; height: 12px; stroke: #fff; transition: transform .28s; }
+    #sidebar.collapsed + #sidebar-toggle { left: 0; }
+    #sidebar.collapsed + #sidebar-toggle svg { transform: rotate(180deg); }
+
+    #map-pane { flex: 1; position: relative; min-width: 0; }
+
+    /* ─── Header ─── */
+    #header {
+      padding: 13px 14px 11px;
+      border-bottom: 1px solid rgba(255,255,255,.15);
+      background: var(--blue);
+      color: #fff;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #header-text { flex: 1; }
+    #header h1 { font-size: 14px; font-weight: 600; letter-spacing: .02em; }
+    #header p  { font-size: 11px; opacity: .65; margin-top: 1px; }
+
+    /* Info-knop in header */
+    #btn-info {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(255,255,255,.15); border: 1.5px solid rgba(255,255,255,.35);
+      color: #fff; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; font-family: Georgia, serif;
+      transition: background .15s;
+    }
+    #btn-info:hover { background: rgba(255,255,255,.28); }
+
+    /* ─── Info modal ─── */
+    #info-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 999;
+      background: rgba(0,0,0,.45); backdrop-filter: blur(3px);
+      align-items: center; justify-content: center; padding: 20px;
+    }
+    #info-backdrop.open { display: flex; }
+    #info-modal {
+      background: var(--surface); border-radius: 10px;
+      max-width: 480px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      overflow: hidden;
+    }
+    #info-modal-header {
+      background: var(--blue); color: #fff;
+      padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #info-modal-header h2 { font-size: 15px; font-weight: 600; }
+    #btn-info-close {
+      background: rgba(255,255,255,.15); border: none; color: #fff;
+      width: 26px; height: 26px; border-radius: 50%;
+      cursor: pointer; font-size: 16px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    #btn-info-close:hover { background: rgba(255,255,255,.3); }
+    #info-modal-body {
+      padding: 20px;
+      font-size: 12.5px; line-height: 1.7; color: var(--text);
+      max-height: 70vh; overflow-y: auto;
+    }
+    #info-modal-body h3 {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px;
+    }
+    #info-modal-body h3:first-child { margin-top: 0; }
+    #info-modal-body p { margin-bottom: 6px; }
+    .info-layer-row {
+      display: flex; gap: 10px; align-items: baseline;
+      padding: 5px 0; border-bottom: 1px solid var(--border);
+    }
+    .info-layer-row:last-child { border-bottom: none; }
+    .info-layer-name { font-weight: 600; min-width: 110px; font-size: 12px; }
+    .info-layer-desc { color: var(--muted); font-size: 11.5px; }
+    .info-badge {
+      display: inline-block; font-size: 10px; font-weight: 600;
+      padding: 1px 6px; border-radius: 3px; margin-left: 4px;
+    }
+    .info-badge-green { background: #D1FAE5; color: #065F46; }
+    .info-badge-blue  { background: #DBEAFE; color: #1E40AF; }
+
+    /* ─── Search ─── */
+    #search-wrap {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    #search-wrap label { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 4px; }
+    #search-input {
+      width: 100%; padding: 7px 10px;
+      border: 1.5px solid var(--border); border-radius: var(--radius);
+      font-family: var(--sans); font-size: 13px; color: var(--text);
+      outline: none; background: var(--bg);
+      transition: border-color .15s;
+    }
+    #search-input:focus { border-color: var(--blue-light); background: #fff; }
+    #autocomplete-list {
+      position: absolute; left: 14px; right: 14px;
+      top: calc(100% - 8px); z-index: 200;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0,0,0,.12);
+      max-height: 220px; overflow-y: auto; display: none;
+    }
+    .ac-item { padding: 8px 11px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .1s; }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover { background: var(--bg); }
+    .ac-item strong { color: var(--blue); display: block; font-size: 13px; }
+    .ac-item span   { color: var(--muted); font-size: 11px; }
+
+    /* ─── Tools ─── */
+    #tools {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    /* Rij 1: selectiemodi */
+    #tools-select {
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    #tools-select-btns {
+      display: flex; gap: 5px; align-items: center;
+    }
+    /* Rij 2: kaartlagen */
+    #tools-layers {
+      display: flex; gap: 5px; align-items: center;
+    }
+    /* Objecttype- en bronhouder-filter rijen */
+    #tools-type, #tools-bron {
+      display: flex; gap: 8px; align-items: center;
+    }
+    #type-filter, #bron-filter {
+      flex: 1; padding: 5px 8px; border-radius: var(--radius);
+      border: 1.5px solid var(--border); background: var(--bg);
+      font-family: var(--sans); font-size: 11.5px; color: var(--text);
+      cursor: pointer; outline: none; transition: border-color .15s;
+      max-width: 100%;
+    }
+    #type-filter:focus, #bron-filter:focus { border-color: var(--blue-light); background: #fff; }
+    #bron-filter:disabled { opacity: .55; cursor: not-allowed; }
+    .tools-section-label {
+      font-size: 9.5px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .07em;
+      white-space: nowrap; min-width: 46px;
+    }
+
+    /* Selectie-knoppen: blauw thema */
+    .sel-btn {
+      display: flex; align-items: center; gap: 4px;
+      padding: 5px 9px; border-radius: var(--radius);
+      font-size: 11.5px; font-weight: 500; cursor: pointer;
+      border: 1.5px solid var(--border);
+      background: var(--bg); color: var(--text);
+      transition: all .15s; white-space: nowrap; flex-shrink: 0;
+    }
+    .sel-btn svg { width: 12px; height: 12px; }
+    .sel-btn:hover  { border-color: var(--blue-light); color: var(--blue); background: #EBF2FF; }
+    .sel-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+    /* Kaartlaag-knoppen: grijs/teal thema — duidelijk anders dan selectie */
+    .layer-btn {
+      display: flex; align-items: center; gap: 4px;
+      padding: 5px 9px; border-radius: var(--radius);
+      font-size: 11.5px; font-weight: 500; cursor: pointer;
+      border: 1.5px solid var(--border);
+      background: var(--bg); color: var(--muted);
+      transition: all .15s; white-space: nowrap; flex-shrink: 0;
+    }
+    .layer-btn svg { width: 12px; height: 12px; }
+    .layer-btn:hover  { border-color: #0E7490; color: #0E7490; background: #ECFEFF; }
+    .layer-btn.active { background: #0E7490; border-color: #0E7490; color: #fff; }
+
+    #mode-label {
+      font-size: 10.5px; color: var(--blue);
+      font-style: italic; padding-left: 2px; min-height: 15px;
+    }
+
+    /* ─── Selectie lijst ─── */
+    #selection-header {
+      padding: 8px 14px 5px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #selection-header .label { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    #count-badge {
+      background: var(--orange); color: #fff;
+      font-size: 11px; font-weight: 600;
+      padding: 1px 7px; border-radius: 99px;
+      min-width: 22px; text-align: center;
+    }
+    #address-list { flex: 1; overflow-y: auto; padding: 0 14px 8px; }
+    #address-list::-webkit-scrollbar { width: 4px; }
+    #address-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .addr-chip {
+      display: flex; align-items: flex-start; gap: 7px;
+      padding: 7px 9px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 4px;
+      cursor: default; transition: background .1s;
+    }
+    .addr-chip:hover { background: var(--orange-lt); border-color: var(--orange); }
+    .addr-chip-text  { flex: 1; }
+    .addr-chip-main  { font-family: var(--mono); font-size: 11.5px; color: var(--text); font-weight: 500; }
+    .addr-chip-meta  { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+    .addr-chip-del   { color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; border: none; background: none; transition: color .1s; }
+    .addr-chip-del:hover { color: #DC2626; }
+
+    /* Gebruiksdoel badge */
+    .addr-chip-doel {
+      display: inline-block; font-size: 10px; font-weight: 500;
+      background: #EBF2FF; color: #1B4F8A;
+      border-radius: 3px; padding: 1px 5px; font-family: var(--sans);
+    }
+    .addr-chip-doel--loading { background: var(--bg); color: var(--muted); font-style: italic; }
+
+    /* Lokaal ID monospace, ingekort */
+    .addr-chip-id {
+      font-family: var(--mono); font-size: 9.5px; color: var(--muted);
+      margin-top: 2px; word-break: break-all;
+    }
+    /* Attributen-toggle + tabel */
+    .attr-toggle {
+      margin-top: 5px; padding: 0; border: none; background: none;
+      color: var(--blue); font-size: 10.5px; font-weight: 600;
+      cursor: pointer; font-family: var(--sans);
+    }
+    .attr-toggle:hover { text-decoration: underline; }
+    .attr-table {
+      margin-top: 5px; border-top: 1px solid var(--border); padding-top: 5px;
+    }
+    .attr-row {
+      display: flex; gap: 8px; padding: 1.5px 0;
+      font-size: 10.5px; line-height: 1.35;
+    }
+    .attr-key {
+      flex: 0 0 42%; color: var(--muted); word-break: break-word;
+    }
+    .attr-val {
+      flex: 1; color: var(--text); word-break: break-word; font-weight: 500;
+    }
+
+    #empty-state { text-align: center; padding: 30px 20px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+    #empty-state svg { margin-bottom: 10px; opacity: .4; }
+
+    /* ─── BGT Download service ─── */
+    #download-bar {
+      padding: 10px 14px 0; display: flex; flex-direction: column; gap: 5px;
+    }
+    #download-format-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 1px;
+    }
+    #download-format {
+      flex: 1; padding: 5px 8px; border-radius: var(--radius);
+      border: 1.5px solid var(--border); background: var(--bg);
+      font-family: var(--sans); font-size: 11.5px; color: var(--text);
+      cursor: pointer; outline: none; transition: border-color .15s;
+    }
+    #download-format:focus { border-color: var(--blue-light); background: #fff; }
+    #btn-download {
+      width: 100%; padding: 9px 14px; border-radius: var(--radius);
+      font-size: 13px; font-weight: 600;
+      background: var(--blue); color: #fff; border: none; cursor: pointer;
+      transition: background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+    }
+    #btn-download:hover:not(:disabled) { background: var(--blue-light); }
+    #btn-download:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+    #btn-download.busy { background: var(--blue-light); cursor: progress; }
+    #download-hint {
+      font-size: 10.5px; color: var(--muted); line-height: 1.4;
+    }
+    #download-status {
+      font-size: 11px; line-height: 1.5; padding: 7px 9px;
+      border-radius: var(--radius); background: var(--bg);
+      border: 1px solid var(--border); color: var(--text);
+    }
+    #download-status.ok    { background: #D1FAE5; border-color: #6EE7B7; color: #065F46; }
+    #download-status.err   { background: #FEE2E2; border-color: #FCA5A5; color: #991B1B; }
+    #download-status .dl-progress {
+      height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; margin-top: 5px;
+    }
+    #download-status .dl-progress > div {
+      height: 100%; background: var(--blue); width: 0%; transition: width .3s;
+    }
+    #download-status a {
+      color: var(--blue); font-weight: 600; text-decoration: none;
+    }
+    #download-status a:hover { text-decoration: underline; }
+
+    /* ─── Footer ─── */
+    #footer { padding: 10px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+    #btn-clear {
+      flex: 0 0 auto; padding: 8px 12px; border-radius: var(--radius);
+      font-size: 12.5px; font-weight: 500;
+      border: 1.5px solid var(--border); background: var(--bg); color: var(--muted);
+      cursor: pointer; transition: all .15s;
+    }
+    #btn-clear:hover { border-color: #DC2626; color: #DC2626; background: #FFF5F5; }
+    #btn-export {
+      flex: 1; padding: 8px 14px; border-radius: var(--radius);
+      font-size: 13px; font-weight: 600;
+      background: var(--orange); color: #fff; border: none; cursor: pointer;
+      transition: background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    #btn-export:hover    { background: #C4530A; }
+    #btn-export:disabled { background: var(--border); cursor: not-allowed; }
+
+    /* ─── Map overlays ─── */
+    #map-info {
+      position: absolute; bottom: 12px; left: 12px; z-index: 500;
+      background: rgba(255,255,255,.92); backdrop-filter: blur(4px);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 5px 10px; font-size: 11px; color: var(--muted);
+      pointer-events: none;
+    }
+    #loading-overlay {
+      position: absolute; inset: 0; z-index: 600;
+      background: rgba(242,244,247,.6); backdrop-filter: blur(2px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Toast ─── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      background: var(--text); color: #fff;
+      padding: 10px 16px; border-radius: var(--radius);
+      font-size: 13px; display: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      animation: fadeUp .25s ease;
+    }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ─── Hamburger knop (mobiel) ─── */
+    /* ─── Hamburger — altijd fixed, boven alles ─── */
+    #hamburger {
+      display: none;                    /* verborgen op desktop */
+      position: fixed;
+      top: 12px; left: 12px;
+      z-index: 1000;                    /* boven sidebar, backdrop, kaart */
+      width: 44px; height: 44px;
+      background: var(--blue);
+      border: none; border-radius: 10px;
+      cursor: pointer;
+      flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.3);
+      transition: background .15s;
+    }
+    #hamburger:hover { background: var(--blue-light); }
+    #hamburger span {
+      display: block;
+      width: 20px; height: 2px;
+      background: #fff; border-radius: 2px;
+      transition: transform .25s, opacity .25s;
+    }
+    #hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    #hamburger.open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
+    #hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+    /* Backdrop achter sidebar op mobiel */
+    #sidebar-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.4);
+      z-index: 998;                     /* onder hamburger, boven kaart */
+      backdrop-filter: blur(1px);
+    }
+
+    /* ─── Mobiel ─── */
+    @media (max-width: 700px) {
+      /* Sidebar als off-canvas drawer */
+      #sidebar {
+        position: fixed;
+        top: 0; left: 0;
+        width: min(300px, 88vw);
+        height: 100dvh;                 /* dynamic viewport height */
+        z-index: 999;
+        transform: translateX(-110%);   /* volledig buiten scherm */
+        transition: transform .28s cubic-bezier(.4,0,.2,1);
+        box-shadow: none;
+      }
+      #sidebar.open {
+        transform: translateX(0);
+        box-shadow: 6px 0 32px rgba(0,0,0,.22);
+      }
+      /* Desktop toggle-tab verbergen */
+      #sidebar-toggle { display: none !important; }
+      /* Hamburger tonen */
+      #hamburger { display: flex; }
+      /* Kaart neemt altijd de volledige viewport in */
+      #map-pane {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+      }
+      /* map-info wat hoger zodat hij niet achter Leaflet-controls zit */
+      #map-info { bottom: 56px; }
+      /* Toast iets hoger op mobiel */
+      #toast { bottom: 16px; right: 12px; left: 12px; text-align: center; }
+      /* Tools wrappen netjes */
+      #tools-select-btns { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+<!-- Hamburger altijd fixed, buiten #app zodat hij nooit gemask wordt -->
+<button id="hamburger" title="Menu openen">
+  <span></span><span></span><span></span>
+</button>
+
+<div id="app">
+
+  <!-- ── INFO MODAL ── -->
+  <div id="info-backdrop">
+    <div id="info-modal">
+      <div id="info-modal-header">
+        <h2>Over BGT download</h2>
+        <button id="btn-info-close">×</button>
+      </div>
+      <div id="info-modal-body">
+        <h3>Applicatie</h3>
+        <p>Met deze tool selecteert u vlakken uit de Basisregistratie Grootschalige Topografie (BGT) — de gedetailleerde grootschalige basiskaart van Nederland — en exporteert u deze naar een CSV-bestand. Selecteer vlakken door erop te klikken of door een polygoon te tekenen.</p>
+
+        <h3>Kaartlagen &amp; Databronnen</h3>
+        <div class="info-layer-row">
+          <span class="info-layer-name">Basiskaart</span>
+          <span class="info-layer-desc">CartoDB Positron — © OpenStreetMap bijdragers, © Carto<span class="info-badge info-badge-blue">continu bijgewerkt</span></span>
+        </div>
+        <div class="info-layer-row">
+          <span class="info-layer-name">Luchtfoto</span>
+          <span class="info-layer-desc">PDOK Actueel Ortho HR — © Kadaster. Meest recente landsdekkende orthofoto, jaarlijks vernieuwd.<span class="info-badge info-badge-green">actueel jaar</span></span>
+        </div>
+        <div class="info-layer-row">
+          <span class="info-layer-name">BGT Basiskaart</span>
+          <span class="info-layer-desc">PDOK BGT WMTS v1.0, <em>achtergrondvisualisatie</em> — © Kadaster. Grootschalige topografie, dagelijks bijgewerkt.<span class="info-badge info-badge-green">dagelijks</span></span>
+        </div>
+        <div class="info-layer-row">
+          <span class="info-layer-name">BGT Vlakken</span>
+          <span class="info-layer-desc">PDOK BGT Features (OGC API) — wegdeel, waterdeel, begroeid/onbegroeid terreindeel, pand e.a. Selectie van fysieke objecten met geometrie en attributen.<span class="info-badge info-badge-green">continu</span></span>
+        </div>
+
+        <h3>BGT objecttypen (vlakken)</h3>
+        <p>Selecteerbare vlakobjecten: <em>wegdeel, waterdeel, begroeidterreindeel, onbegroeidterreindeel, ondersteunendwegdeel, ondersteunendwaterdeel, overbruggingsdeel, pand, overigbouwwerk, scheiding_vlak, kunstwerkdeel_vlak, tunneldeel</em>. Per vlak worden type, functie/fysiek voorkomen, bronhouder en lokaal_id geregistreerd.</p>
+
+        <h3>Export</h3>
+        <p>De CSV-export bevat alle attributen die de BGT teruggeeft per geselecteerd objecttype (de kolommen verschillen dus per selectie), plus berekende oppervlakte (m²) en latitude/longitude (WGS84) van het zwaartepunt. Wanneer een bronhouder-filter actief is, worden alleen de zichtbare vlakken geëxporteerd. Het bestand is UTF-8 met BOM voor correcte weergave in Excel.</p>
+
+        <h3>BGT Download service</h3>
+        <p>Zodra u een polygoon tekent, wordt de knop <em>BGT downloaden</em> actief. Deze gebruikt de PDOK BGT Download API (<em>full/custom</em>) om het officiële BGT-extract (CityGML) voor het getekende gebied te genereren. De polygoon wordt omgezet naar WKT in EPSG:28992 (RD) en als geofilter meegegeven; het objecttype-filter bepaalt welke featuretypes worden meegenomen (of alle vlaktypen). Het genereren gebeurt asynchroon bij PDOK — na voltooiing start de ZIP-download automatisch. Let op: het geofilter is niet exact, dus het extract kan objecten net buiten de polygoon bevatten.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SIDEBAR ── -->
+  <aside id="sidebar">
+    <div id="header">
+      <div id="header-text">
+        <h1>BGT download</h1>
+        <p>Basiskaart Grootschalige Topografie</p>
+      </div>
+      <button id="btn-info" title="Informatie over databronnen">i</button>
+    </div>
+
+    <!-- Zoekbalk -->
+    <div id="search-wrap">
+      <label for="search-input">Zoek locatie</label>
+      <input id="search-input" type="text" placeholder="Bijv. Stationsplein 1, Utrecht…" autocomplete="off" />
+      <div id="autocomplete-list"></div>
+    </div>
+
+    <!-- Tools -->
+    <div id="tools">
+      <!-- Rij 1: selectiemodi -->
+      <div id="tools-select">
+        <div id="tools-select-btns">
+          <span class="tools-section-label">Selectie</span>
+          <button class="sel-btn active" id="btn-click" title="Klik op een BGT-vlak">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="4.5"/><line x1="8" y1="1" x2="8" y2="4"/><line x1="8" y1="12" x2="8" y2="15"/><line x1="1" y1="8" x2="4" y2="8"/><line x1="12" y1="8" x2="15" y2="8"/></svg>
+            Klik
+          </button>
+          <button class="sel-btn" id="btn-poly" title="Teken een polygoon en selecteer alle vlakken daarbinnen">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="8,1 15,6 12,14 4,14 1,6"/></svg>
+            Polygoon
+          </button>
+        </div>
+        <span id="mode-label"></span>
+      </div>
+      <!-- Rij 2: objecttype-filter -->
+      <div id="tools-type">
+        <span class="tools-section-label">Objecttype</span>
+        <select id="type-filter" title="Filter op BGT-objecttype">
+          <option value="all">Alle vlakken</option>
+          <option value="wegdeel">Wegdeel</option>
+          <option value="waterdeel">Waterdeel</option>
+          <option value="begroeidterreindeel">Begroeid terreindeel</option>
+          <option value="onbegroeidterreindeel">Onbegroeid terreindeel</option>
+          <option value="ondersteunendwegdeel">Ondersteunend wegdeel</option>
+          <option value="ondersteunendwaterdeel">Ondersteunend waterdeel</option>
+          <option value="overbruggingsdeel">Overbruggingsdeel</option>
+          <option value="pand">Pand</option>
+          <option value="overigbouwwerk">Overig bouwwerk</option>
+          <option value="scheiding_vlak">Scheiding (vlak)</option>
+          <option value="kunstwerkdeel_vlak">Kunstwerkdeel (vlak)</option>
+          <option value="tunneldeel">Tunneldeel</option>
+        </select>
+      </div>
+      <!-- Rij 2b: bronhouder-filter (gevuld uit selectie) -->
+      <div id="tools-bron">
+        <span class="tools-section-label">Bronhouder</span>
+        <select id="bron-filter" title="Filter de lijst op bronhouder">
+          <option value="all">Alle bronhouders</option>
+        </select>
+      </div>
+      <!-- Rij 3: kaartlagen -->
+      <div id="tools-layers">
+        <span class="tools-section-label">Lagen</span>
+        <button class="layer-btn active" id="btn-bgt" title="BGT basiskaart aan/uit">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5"/><line x1="1.5" y1="6" x2="14.5" y2="6"/><line x1="1.5" y1="10.5" x2="14.5" y2="10.5"/><line x1="6" y1="1.5" x2="6" y2="14.5"/></svg>
+          BGT-kaart
+        </button>
+        <button class="layer-btn" id="btn-luchtfoto" title="Wissel naar luchtfoto">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12 L4 7 L7 10 L10 5 L13 8 L15 6"/><circle cx="13" cy="3.5" r="1.5"/></svg>
+          Luchtfoto
+        </button>
+      </div>
+    </div>
+
+    <!-- Geselecteerde vlakken -->
+    <div id="selection-header">
+      <span class="label">Geselecteerde vlakken</span>
+      <span id="count-badge">0</span>
+    </div>
+
+    <div id="address-list">
+      <div id="empty-state">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+        <p>Nog geen vlakken geselecteerd.<br/>Klik op een BGT-vlak of teken een polygoon.</p>
+      </div>
+    </div>
+
+    <!-- BGT Download service (actief zodra er een polygoon getekend is) -->
+    <div id="download-bar">
+      <div id="download-format-row">
+        <span class="tools-section-label">Formaat</span>
+        <select id="download-format" title="Kies het downloadformaat">
+          <option value="citygml">CityGML (GML)</option>
+          <option value="gmllight">GML-light</option>
+          <option value="stufgeo">StUF-Geo</option>
+        </select>
+      </div>
+      <button id="btn-download" disabled title="Teken eerst een polygoon">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 1v9M4.5 6.5L8 10l3.5-3.5"/><path d="M2 13h12"/></svg>
+        <span id="btn-download-label">BGT downloaden (polygoon)</span>
+      </button>
+      <div id="download-hint">Teken een polygoon om het officiële BGT-extract voor dat gebied te downloaden.</div>
+      <div id="download-status" style="display:none;"></div>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer">
+      <button id="btn-clear">Wis alles</button>
+      <button id="btn-export" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1"/></svg>
+        Exporteer CSV
+      </button>
+    </div>
+  </aside>
+
+  <!-- Sidebar inklapknop (desktop) -->
+  <button id="sidebar-toggle" title="Paneel in-/uitklappen">
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="7,2 3,6 7,10"/></svg>
+  </button>
+
+  <!-- Backdrop (mobiel, achter sidebar) -->
+  <div id="sidebar-backdrop"></div>
+
+  <!-- ── MAP ── -->
+  <div id="map-pane">
+    <div id="map" style="width:100%;height:100%;"></div>
+    <div id="map-info">Zoom in voor BGT-selectie (min. zoom 14)</div>
+    <div id="loading-overlay"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────
+const state = {
+  vlakken: [],         // geselecteerde BGT-vlakken: [{id, objecttype, functie, bronhouder, opp, lat, lon, _layer, geometry}]
+  mode: 'click',       // 'click' | 'poly'
+  typeFilter: 'all',   // 'all' of een specifiek BGT-objecttype
+  bronFilter: 'all',   // 'all' of een specifieke bronhouder (filtert de lijst)
+  // Polygoon tekenen
+  polyPoints: [],      // [L.LatLng, ...]
+  polyLine:   null,    // L.Polyline (preview tijdens tekenen)
+  polyPreview: null,   // L.Polyline (rubber band naar cursor)
+  polyLayer:  null,    // L.Polygon (gesloten vlak)
+  polyRing:   null,    // [[lat,lon],...] van de afgeronde polygoon (voor download)
+  downloadBusy: false, // staat van de BGT download-service
+};
+
+// ── Map init ───────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([51.5719, 4.7683], 18);
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+// ── Basiskaarten ──────────────────────────────────────────
+const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap · © Carto · BGT/PDOK',
+  maxZoom: 20,
+});
+
+const luchtfotoLayer = L.tileLayer(
+  'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',
+  {
+    attribution: '© Kadaster · PDOK Luchtfoto Actueel ortho HR',
+    maxZoom: 20,
+    minZoom: 6,
+  }
+);
+
+let isLuchtfoto = false;
+cartoLayer.addTo(map);
+
+// BGT Basiskaart grootschalige topografie (PDOK WMTS v1.0)
+// Achtergrondvisualisatie van de BGT als tegellaag in EPSG:3857.
+const bgtLayer = L.tileLayer(
+  'https://service.pdok.nl/lv/bgt/wmts/v1_0/achtergrondvisualisatie/EPSG:3857/{z}/{x}/{y}.png',
+  {
+    attribution: '© Kadaster · PDOK BGT achtergrondvisualisatie',
+    opacity: 1,
+    maxZoom: 21,
+    minZoom: 12,
+  }
+).addTo(map);
+let bgtVisible = true;
+
+// Laag waarin geselecteerde BGT-vlakken oranje gemarkeerd worden
+const selLayer = L.layerGroup().addTo(map);
+// Laag voor hover/preview van een aangeklikt vlak
+const markers  = L.layerGroup().addTo(map);
+
+// ── BGT objecttypen die als vlak (polygoon) beschikbaar zijn ──
+const BGT_VLAK_TYPES = [
+  'wegdeel', 'waterdeel', 'begroeidterreindeel', 'onbegroeidterreindeel',
+  'ondersteunendwegdeel', 'ondersteunendwaterdeel', 'overbruggingsdeel',
+  'pand', 'overigbouwwerk', 'scheiding_vlak', 'kunstwerkdeel_vlak', 'tunneldeel',
+];
+const BGT_OGC = 'https://api.pdok.nl/lv/bgt/ogc/v1';
+const BGT_MIN_ZOOM = 14;
+
+// Leesbaar label per objecttype
+const BGT_LABELS = {
+  wegdeel: 'Wegdeel', waterdeel: 'Waterdeel',
+  begroeidterreindeel: 'Begroeid terreindeel', onbegroeidterreindeel: 'Onbegroeid terreindeel',
+  ondersteunendwegdeel: 'Ondersteunend wegdeel', ondersteunendwaterdeel: 'Ondersteunend waterdeel',
+  overbruggingsdeel: 'Overbruggingsdeel', pand: 'Pand', overigbouwwerk: 'Overig bouwwerk',
+  scheiding_vlak: 'Scheiding (vlak)', kunstwerkdeel_vlak: 'Kunstwerkdeel (vlak)', tunneldeel: 'Tunneldeel',
+};
+
+// Opacity van de BGT-laag: dekkend op de gewone basiskaart,
+// half-transparant wanneer de luchtfoto eronder zichtbaar moet blijven.
+const BGT_OPACITY_BASE  = 1;
+const BGT_OPACITY_PHOTO = 0.5;
+function applyBgtOpacity() {
+  bgtLayer.setOpacity(isLuchtfoto ? BGT_OPACITY_PHOTO : BGT_OPACITY_BASE);
+}
+
+// ── BGT basiskaart toggle ─────────────────────────────────
+document.getElementById('btn-bgt').addEventListener('click', function() {
+  bgtVisible = !bgtVisible;
+  this.classList.toggle('active', bgtVisible);
+  if (bgtVisible) {
+    bgtLayer.addTo(map); applyBgtOpacity();
+    bgtLayer.bringToFront(); selLayer.bringToFront(); markers.bringToFront();
+  } else {
+    map.removeLayer(bgtLayer);
+  }
+});
+
+// ── Luchtfoto toggle ──────────────────────────────────────
+document.getElementById('btn-luchtfoto').addEventListener('click', function () {
+  isLuchtfoto = !isLuchtfoto;
+  this.classList.toggle('active', isLuchtfoto);
+  this.querySelector('svg').style.stroke = isLuchtfoto ? '#fff' : '';
+
+  if (isLuchtfoto) {
+    map.removeLayer(cartoLayer);
+    luchtfotoLayer.addTo(map);
+    luchtfotoLayer.bringToBack();
+  } else {
+    map.removeLayer(luchtfotoLayer);
+    cartoLayer.addTo(map);
+    cartoLayer.bringToBack();
+  }
+  // BGT blijft bovenop liggen, maar wordt transparant zodat de luchtfoto doorschijnt
+  if (bgtVisible) { bgtLayer.bringToFront(); applyBgtOpacity(); }
+  selLayer.bringToFront();
+  markers.bringToFront();
+});
+
+const loadingOverlay = document.getElementById('loading-overlay');
+const mapInfo        = document.getElementById('map-info');
+
+map.on('zoomend', updateMapInfo);
+function updateMapInfo() {
+  const z = map.getZoom();
+  mapInfo.textContent = z < 14
+    ? `Zoom in voor BGT-selectie (huidig: ${z}, min: 14)`
+    : `Zoom ${z} · Klik een BGT-vlak of teken een polygoon`;
+}
+updateMapInfo();
+
+// ── PDOK Locatieserver autocomplete ───────────────────────
+const searchInput = document.getElementById('search-input');
+const acList      = document.getElementById('autocomplete-list');
+let acTimeout;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(acTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { acList.style.display = 'none'; return; }
+  acTimeout = setTimeout(() => fetchSuggest(q), 220);
+});
+
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { acList.style.display = 'none'; }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#search-wrap')) acList.style.display = 'none';
+});
+
+async function fetchSuggest(q) {
+  try {
+    const url = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest?q=${encodeURIComponent(q)}&fq=type:adres&rows=8&fl=weergavenaam,id,centroide_ll`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    const docs = data?.response?.docs || [];
+    renderAc(docs);
+  } catch { acList.style.display = 'none'; }
+}
+
+function renderAc(docs) {
+  acList.innerHTML = '';
+  if (!docs.length) { acList.style.display = 'none'; return; }
+  docs.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'ac-item';
+    const parts = d.weergavenaam.split(',');
+    el.innerHTML = `<strong>${parts[0]}</strong><span>${parts.slice(1).join(',').trim()}</span>`;
+    el.addEventListener('click', () => selectSuggest(d));
+    acList.appendChild(el);
+  });
+  acList.style.display = 'block';
+}
+
+async function selectSuggest(doc) {
+  acList.style.display = 'none';
+  searchInput.value = '';
+  // Alleen navigeren naar de locatie; selectie gebeurt via klik of polygoon
+  try {
+    const url = `https://api.pdok.nl/bzk/locatieserver/search/v3_1/lookup?id=${doc.id}&fl=centroide_ll`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    const d    = data?.response?.docs?.[0];
+    if (!d) return;
+    const [lon, lat] = parseCentroide(d.centroide_ll);
+    map.setView([lat, lon], Math.max(map.getZoom(), 18));
+  } catch(e) { showToast('Kon locatie niet ophalen'); }
+}
+
+function parseCentroide(s) {
+  // "POINT(5.123 52.456)"
+  const m = s && s.match(/POINT\(([^ ]+) ([^)]+)\)/);
+  return m ? [parseFloat(m[1]), parseFloat(m[2])] : [0, 0];
+}
+
+// ── Map click ─────────────────────────────────────────────
+map.on('click', async e => {
+  if (state.mode === 'click') {
+    if (map.getZoom() < 14) { showToast('Zoom verder in om een BGT-vlak te selecteren'); return; }
+    await fetchVlakAtPoint(e.latlng.lat, e.latlng.lng);
+  } else if (state.mode === 'poly') {
+    polyAddPoint(e.latlng);
+  }
+});
+
+map.on('dblclick', async e => {
+  if (state.mode !== 'poly') return;
+  L.DomEvent.stop(e);   // voorkom zoom bij dubbelklik
+  await polyClose();
+});
+
+// ── Polygoon tekenfuncties ─────────────────────────────────
+function polyMouseMove(e) {
+  if (!state.polyPoints.length) return;
+  const pts = [...state.polyPoints.map(p => [p.lat, p.lng]), [e.latlng.lat, e.latlng.lng]];
+  if (state.polyPreview) {
+    state.polyPreview.setLatLngs(pts);
+  } else {
+    state.polyPreview = L.polyline(pts, {
+      color: '#1B4F8A', weight: 1.5, dashArray: '5,5', opacity: 0.7,
+    }).addTo(map);
+  }
+}
+
+function polyAddPoint(latlng) {
+  // Wis voltooide polygoon van vorige sessie bij eerste nieuw punt
+  if (state.polyLayer && state.polyPoints.length === 0) {
+    map.removeLayer(state.polyLayer); state.polyLayer = null;
+  }
+  state.polyPoints.push(latlng);
+
+  // Teken/update de vaste lijn
+  if (state.polyLine) {
+    state.polyLine.setLatLngs(state.polyPoints.map(p => [p.lat, p.lng]));
+  } else {
+    state.polyLine = L.polyline(
+      state.polyPoints.map(p => [p.lat, p.lng]),
+      { color: '#1B4F8A', weight: 2, opacity: 0.9 }
+    ).addTo(map);
+    // Start rubber-band mousemove
+    map.on('mousemove', polyMouseMove);
+  }
+
+  // Sla punt-markering op voor opruimen via clearPolyDraw
+  state.polyPoints[state.polyPoints.length - 1]._marker =
+    L.circleMarker([latlng.lat, latlng.lng], {
+      radius: 4, color: '#1B4F8A', fillColor: '#fff',
+      fillOpacity: 1, weight: 2,
+    }).addTo(map);
+}
+
+async function polyClose() {
+  if (state.polyPoints.length < 3) {
+    showToast('Teken minimaal 3 punten voor een polygoon');
+    return;
+  }
+  // Toon gesloten polygoon
+  const lls = state.polyPoints.map(p => [p.lat, p.lng]);
+  if (state.polyLine)    { map.removeLayer(state.polyLine);    state.polyLine    = null; }
+  if (state.polyPreview) { map.removeLayer(state.polyPreview); state.polyPreview = null; }
+  // Verwijder punt-markers
+  state.polyPoints.forEach(p => { if (p._marker) map.removeLayer(p._marker); });
+  map.off('mousemove', polyMouseMove);
+
+  state.polyLayer = L.polygon(lls, {
+    color: '#1B4F8A', weight: 2, fillColor: '#1B4F8A', fillOpacity: 0.08,
+  }).addTo(map);
+  state.polyRing = lls.slice();   // [[lat,lon],...] voor de download-service
+  updateDownloadButton();
+
+  // Zoek BGT-vlakken binnen de polygoon
+  const bounds = state.polyLayer.getBounds();
+
+  showLoading(true);
+  try {
+    const types = activeTypes();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const bbox = `${sw.lng},${sw.lat},${ne.lng},${ne.lat}`;
+
+    let added = 0, removed = 0, scanned = 0;
+    for (const type of types) {
+      const feats = await fetchBgtItems(type, bbox, 1000);
+      for (const f of feats) {
+        scanned++;
+        const rep = representativePoint(f.geometry);
+        if (!rep) continue;
+        const [flat, flon] = rep;          // [lat, lon]
+        if (!bounds.contains([flat, flon])) continue;
+        if (!pointInPolygon([flat, flon], lls)) continue;
+
+        const id = vlakId(f, type);
+        if (state.vlakken.find(v => v.id === id)) { removeVlak(id); removed++; continue; }
+        addVlak(buildVlak(f, type, flat, flon), true);
+        added++;
+      }
+    }
+    renderList();
+    const parts = [];
+    if (added   > 0) parts.push(`${added} toegevoegd`);
+    if (removed > 0) parts.push(`${removed} verwijderd`);
+    showToast(parts.join(', ') || (scanned ? 'Geen vlakken in polygoon' : 'Geen BGT-vlakken gevonden'));
+  } catch (e) {
+    showToast('Fout bij ophalen BGT-vlakken'); console.error(e);
+  } finally {
+    showLoading(false);
+    state.polyPoints = [];
+  }
+}
+
+// Ray-casting punt-in-polygoon (lat/lon als [lat,lng] arrays)
+function pointInPolygon(point, vs) {
+  const [py, px] = point;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const [iy, ix] = vs[i], [jy, jx] = vs[j];
+    if (((iy > py) !== (jy > py)) && px < ((jx - ix) * (py - iy)) / (jy - iy) + ix)
+      inside = !inside;
+  }
+  return inside;
+}
+
+// ── BGT helpers ────────────────────────────────────────────
+// Welke objecttypen moeten doorzocht worden, gegeven het filter?
+function activeTypes() {
+  return state.typeFilter === 'all' ? BGT_VLAK_TYPES : [state.typeFilter];
+}
+
+// Haal BGT-items op via OGC API Features binnen een bbox (EPSG:4326: minLon,minLat,maxLon,maxLat)
+async function fetchBgtItems(type, bbox, limit = 100) {
+  const url = `${BGT_OGC}/collections/${type}/items` +
+    `?bbox=${bbox}&limit=${limit}&f=json`;
+  try {
+    const res = await fetch(url, { headers: { 'Accept': 'application/geo+json' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    // Alleen actuele objecten (geen historie): eind_registratie leeg
+    return (data?.features || []).filter(f => {
+      const er = f.properties?.eind_registratie;
+      return er === undefined || er === null || er === '';
+    });
+  } catch (e) {
+    console.warn(`[BGT ${type}] ophalen mislukt:`, e.message);
+    return [];
+  }
+}
+
+// Uniek id voor een vlak (lokaal_id + objecttype)
+function vlakId(feature, type) {
+  const p = feature.properties || {};
+  const lid = p.lokaal_id || p.lokaalid || p.identificatie || feature.id || Math.random().toString(36).slice(2);
+  return `${type}:${lid}`;
+}
+
+// Bouw een genormaliseerd vlak-object uit een BGT-feature
+function buildVlak(feature, type, lat, lon) {
+  const p = feature.properties || {};
+  // Functie/fysiek voorkomen verschilt per objecttype
+  const functie = p.functie || p.fysiek_voorkomen || p.bgt_fysiekvoorkomen ||
+                  p.bgt_functie || p.plus_fysiekvoorkomen || p.plus_functie ||
+                  p.bgt_type || p.plus_type || p.type || '';
+  const plusFysiek = p.plus_fysiekvoorkomen || p.plusfysiekvoorkomen || '';
+  return {
+    id:         vlakId(feature, type),
+    lokaalId:   p.lokaal_id || p.lokaalid || p.identificatie || '',
+    objecttype: type,
+    functie:    Array.isArray(functie) ? functie.join('; ') : functie,
+    plusFysiek: Array.isArray(plusFysiek) ? plusFysiek.join('; ') : plusFysiek,
+    bronhouder: p.bronhouder || '',
+    opp:        polygonAreaM2(feature.geometry, lat),
+    props:      p,                       // volledige attributenset uit de BGT
+    lat, lon,
+    geometry:   feature.geometry,
+  };
+}
+
+// Attributen die we niet (los) tonen: geometrie-velden en interne velden
+const HIDE_FIELDS = new Set([
+  'geometry', 'geom', 'geometrie', 'id', 'gml_id',
+]);
+
+// Codespace-velden (bv. status_codespace, plus_status_codespace, bgt_type_codespace,
+// plus_type_codespace, …) niet tonen of exporteren.
+function isHiddenField(k) {
+  if (HIDE_FIELDS.has(k)) return true;
+  const key = String(k).toLowerCase();
+  return key.endsWith('codespace') || key.includes('codespace') || key.includes('code_space');
+}
+
+// Veldnaam → leesbaar label
+function niceFieldName(key) {
+  const map = {
+    lokaal_id: 'Lokaal ID', lokaalid: 'Lokaal ID', identificatie: 'Identificatie',
+    namespace: 'Namespace', bronhouder: 'Bronhouder', status: 'Status',
+    inonderzoek: 'In onderzoek', in_onderzoek: 'In onderzoek',
+    relatievehoogteligging: 'Relatieve hoogteligging', relatieve_hoogteligging: 'Relatieve hoogteligging',
+    bgt_functie: 'Functie (BGT)', plus_functie: 'Functie (plus)', functie: 'Functie',
+    bgt_fysiekvoorkomen: 'Fysiek voorkomen (BGT)', plus_fysiekvoorkomen: 'Fysiek voorkomen (plus)',
+    fysiek_voorkomen: 'Fysiek voorkomen', fysiekvoorkomen: 'Fysiek voorkomen',
+    bgt_type: 'Type (BGT)', plus_type: 'Type (plus)', type: 'Type',
+    bgt_status: 'Status (BGT)', plus_status: 'Status (plus)',
+    creationdate: 'Aangemaakt', terminationdate: 'Beëindigd',
+    tijdstip_registratie: 'Registratie', tijdstipregistratie: 'Registratie',
+    eind_registratie: 'Einde registratie', eindregistratie: 'Einde registratie',
+    lv_publicatiedatum: 'LV-publicatiedatum',
+    objectbegintijd: 'Object begintijd', objecteindtijd: 'Object eindtijd',
+    versiebegintijd: 'Versie begintijd', versieeindtijd: 'Versie eindtijd',
+    optalud: 'Op talud', overigbouwwerktype: 'Type bouwwerk',
+    openbareruimtetype: 'Type openbare ruimte',
+  };
+  if (map[key]) return map[key];
+  // Fallback: snake_case → Sentence case
+  return key.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+}
+
+// Verwijdert een leidende code/codespace uit een waarde en maakt hem leesbaar.
+// Bijv. "BGT-greppelDroogteSloot" → "greppel droogte sloot",
+//       "waterloop-sloot" → "sloot", "code:Erf" → "Erf".
+function cleanCoded(s) {
+  let out = String(s);
+  // Verwijder een leidende codespace gescheiden door : of een eerste -
+  if (out.includes(':')) out = out.split(':').pop();
+  else {
+    const m = out.match(/^[A-Za-z0-9]{1,8}-(.+)$/);
+    if (m) out = m[1];
+  }
+  // camelCase / PascalCase opsplitsen in losse woorden
+  out = out.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+  out = out.replace(/[_]+/g, ' ').trim();
+  return out;
+}
+
+// Waarde leesbaar maken
+function niceFieldValue(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (Array.isArray(v)) return v.map(niceFieldValue).join('; ');
+  if (typeof v === 'boolean') return v ? 'ja' : 'nee';
+  const s = String(v);
+  // ISO-datum → NL-datum
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  // Numerieke/zuivere waarden ongemoeid laten
+  if (/^-?\d+([.,]\d+)?$/.test(s)) return s;
+  // Coderingen opschonen
+  return cleanCoded(s);
+}
+
+// Geordende lijst van [label, waarde] van alle zinvolle attributen
+function vlakAttrRows(v) {
+  const p = v.props || {};
+  const rows = [];
+  // Vaste kop-velden eerst (indien aanwezig), daarna de rest alfabetisch
+  const priority = ['lokaal_id','lokaalid','identificatie','status','bgt_functie','plus_functie',
+    'functie','bgt_fysiekvoorkomen','plus_fysiekvoorkomen','fysiek_voorkomen','bgt_type','plus_type',
+    'relatievehoogteligging','bronhouder','inonderzoek','creationdate','tijdstip_registratie'];
+  const seen = new Set();
+  const push = k => {
+    if (seen.has(k) || isHiddenField(k)) return;
+    if (!(k in p)) return;
+    seen.add(k);
+    rows.push([niceFieldName(k), niceFieldValue(p[k])]);
+  };
+  priority.forEach(push);
+  Object.keys(p).sort().forEach(push);
+  // Berekende oppervlakte als extra regel
+  if (v.opp) rows.push(['Oppervlakte', `${v.opp.toLocaleString('nl-NL')} m²`]);
+  return rows;
+}
+
+// Geometrisch zwaartepunt-achtig representatief punt → [lat, lon]
+function representativePoint(geom) {
+  if (!geom) return null;
+  const ring = firstRing(geom);
+  if (!ring || !ring.length) return null;
+  let sx = 0, sy = 0;
+  for (const [x, y] of ring) { sx += x; sy += y; }   // x=lon, y=lat
+  return [sy / ring.length, sx / ring.length];
+}
+
+// Eerste ring van (Multi)Polygon als [[lon,lat],...]
+function firstRing(geom) {
+  if (geom.type === 'Polygon') return geom.coordinates?.[0] || null;
+  if (geom.type === 'MultiPolygon') return geom.coordinates?.[0]?.[0] || null;
+  return null;
+}
+
+// Globe-oppervlakte (shoelace) van eerste ring, in m²
+function polygonAreaM2(geom, refLat) {
+  const ring = firstRing(geom);
+  if (!ring || ring.length < 3) return 0;
+  const R = 6378137;
+  const rad = Math.PI / 180;
+  const mPerDegLat = R * rad;
+  const mPerDegLon = R * rad * Math.cos(refLat * rad);
+  let area = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    const xiM = xi * mPerDegLon, yiM = yi * mPerDegLat;
+    const xjM = xj * mPerDegLon, yjM = yj * mPerDegLat;
+    area += (xjM * yiM) - (xiM * yjM);
+  }
+  return Math.round(Math.abs(area) / 2);
+}
+
+// ── Klik-selectie van één BGT-vlak ─────────────────────────
+async function fetchVlakAtPoint(lat, lon) {
+  showLoading(true);
+  try {
+    // Kleine bbox rondom het klikpunt (~6 m) en zoek vlakken die het punt bevatten
+    const d = 0.00006;
+    const bbox = `${lon - d},${lat - d},${lon + d},${lat + d}`;
+    const types = activeTypes();
+
+    const candidates = [];
+    for (const type of types) {
+      const feats = await fetchBgtItems(type, bbox, 50);
+      for (const f of feats) {
+        const ring = firstRing(f.geometry);
+        if (!ring) continue;
+        // ring is [lon,lat]; punt-in-polygoon verwacht [lat,lng]
+        const latlngRing = ring.map(([x, y]) => [y, x]);
+        if (pointInPolygon([lat, lon], latlngRing)) {
+          candidates.push({ f, type, area: polygonAreaM2(f.geometry, lat) });
+        }
+      }
+    }
+
+    if (!candidates.length) {
+      showToast('Geen BGT-vlak gevonden op deze locatie');
+      return;
+    }
+    // Kies het kleinste omsluitende vlak (meest specifiek)
+    candidates.sort((a, b) => a.area - b.area);
+    const { f, type } = candidates[0];
+    const rep = representativePoint(f.geometry) || [lat, lon];
+
+    const id = vlakId(f, type);
+    if (state.vlakken.find(v => v.id === id)) {
+      removeVlak(id);
+      showToast('Vlak gedeselecteerd');
+    } else {
+      addVlak(buildVlak(f, type, rep[0], rep[1]));
+    }
+  } catch (e) {
+    showToast('Fout bij ophalen BGT-vlak'); console.error(e);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ── Selectiemodi & objecttype-filter ──────────────────────
+const btnClick  = document.getElementById('btn-click');
+const btnPoly   = document.getElementById('btn-poly');
+const modeLbl   = document.getElementById('mode-label');
+
+btnClick.addEventListener('click',  () => setMode('click'));
+btnPoly.addEventListener('click',   () => setMode('poly'));
+
+document.getElementById('type-filter').addEventListener('change', function() {
+  state.typeFilter = this.value;
+  const label = this.value === 'all' ? 'alle vlakken' : (BGT_LABELS[this.value] || this.value);
+  showToast(`Filter: ${label}`);
+});
+
+const bronSelect = document.getElementById('bron-filter');
+bronSelect.addEventListener('change', function() {
+  state.bronFilter = this.value;
+  renderList();
+});
+
+// Vul de bronhouder-dropdown met de bronhouders die in de selectie voorkomen
+function refreshBronFilter() {
+  const bronnen = [...new Set(
+    state.vlakken.map(v => v.bronhouder).filter(Boolean)
+  )].sort();
+
+  // Als de huidige keuze niet meer bestaat → terug naar 'all'
+  if (state.bronFilter !== 'all' && !bronnen.includes(state.bronFilter)) {
+    state.bronFilter = 'all';
+  }
+
+  bronSelect.innerHTML = '<option value="all">Alle bronhouders</option>' +
+    bronnen.map(b => `<option value="${b}">${niceFieldValue(b)}</option>`).join('');
+  bronSelect.value = state.bronFilter;
+  bronSelect.disabled = bronnen.length === 0;
+}
+
+const MODE_LABELS = {
+  click:  '',
+  poly:   'Klik punten · dubbelklik om te sluiten',
+};
+
+function clearPolyDraw() {
+  if (state.polyLine)    { map.removeLayer(state.polyLine);    state.polyLine    = null; }
+  if (state.polyPreview) { map.removeLayer(state.polyPreview); state.polyPreview = null; }
+  if (state.polyLayer)   { map.removeLayer(state.polyLayer);   state.polyLayer   = null; }
+  state.polyPoints = [];
+  state.polyRing   = null;
+  map.off('mousemove', polyMouseMove);
+  updateDownloadButton();
+}
+
+function setMode(m) {
+  state.mode = m;
+  btnClick.classList.toggle('active',  m === 'click');
+  btnPoly.classList.toggle('active',   m === 'poly');
+  modeLbl.textContent = MODE_LABELS[m] || '';
+
+  map.dragging.enable();
+  if (m !== 'poly') clearPolyDraw();
+}
+
+// ── Sidebar toggle (desktop pijl-tab) ────────────────────
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('collapsed');
+  setTimeout(() => map.invalidateSize(), 300);
+});
+
+// ── Hamburger (mobiel) ────────────────────────────────────
+const hamburger = document.getElementById('hamburger');
+const sidebarEl = document.getElementById('sidebar');
+const backdrop  = document.getElementById('sidebar-backdrop');
+
+function openSidebar() {
+  sidebarEl.classList.add('open');
+  hamburger.classList.add('open');
+  backdrop.style.display = 'block';
+}
+function closeSidebar() {
+  sidebarEl.classList.remove('open');
+  hamburger.classList.remove('open');
+  backdrop.style.display = 'none';
+}
+
+hamburger.addEventListener('click', () => {
+  sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar();
+});
+
+// Klik op backdrop sluit sidebar
+backdrop.addEventListener('click', closeSidebar);
+
+// Sluit sidebar op mobiel na adres-selectie via autocomplete
+document.getElementById('autocomplete-list').addEventListener('click', () => {
+  if (window.innerWidth <= 600) closeSidebar();
+});
+
+// ── Info modal ───────────────────────────────────────────
+document.getElementById('btn-info').addEventListener('click', () => {
+  document.getElementById('info-backdrop').classList.add('open');
+});
+document.getElementById('btn-info-close').addEventListener('click', () => {
+  document.getElementById('info-backdrop').classList.remove('open');
+});
+document.getElementById('info-backdrop').addEventListener('click', e => {
+  if (e.target === document.getElementById('info-backdrop'))
+    document.getElementById('info-backdrop').classList.remove('open');
+});
+
+
+
+// ── Vlak management ────────────────────────────────────────
+function addVlak(vlak, silent = false) {
+  // Toggle: al geselecteerd → deselecteer
+  if (state.vlakken.find(v => v.id === vlak.id)) {
+    removeVlak(vlak.id);
+    if (!silent) showToast('Vlak gedeselecteerd');
+    return false;
+  }
+  state.vlakken.push(vlak);
+
+  // Teken het geselecteerde vlak oranje op de kaart
+  const gj = L.geoJSON({ type: 'Feature', geometry: vlak.geometry }, {
+    style: { color: '#E8610A', weight: 2, fillColor: '#E8610A', fillOpacity: 0.22 },
+  }).addTo(selLayer);
+  gj.bindPopup(vlakPopup(vlak));
+  vlak._layer = gj;
+
+  if (!silent) {
+    renderList();
+    showToast('Vlak toegevoegd');
+  }
+  return true;
+}
+
+function removeVlak(id) {
+  const idx = state.vlakken.findIndex(v => v.id === id);
+  if (idx === -1) return;
+  const v = state.vlakken[idx];
+  if (v._layer) selLayer.removeLayer(v._layer);
+  state.vlakken.splice(idx, 1);
+  renderList();
+}
+
+function vlakLabel(v) {
+  return BGT_LABELS[v.objecttype] || v.objecttype;
+}
+
+function vlakPopup(v) {
+  const rows = vlakAttrRows(v).map(([k, val]) =>
+    `<tr><td style="color:#6B7280;padding:1px 8px 1px 0;white-space:nowrap;vertical-align:top;">${k}</td>` +
+    `<td style="color:#1A1A2E;padding:1px 0;">${val}</td></tr>`
+  ).join('');
+  return `<div style="min-width:200px;max-height:240px;overflow:auto;">
+      <b style="font-size:13px;">${vlakLabel(v)}</b>
+      <table style="margin-top:6px;font-size:11px;border-collapse:collapse;">${rows}</table>
+    </div>`;
+}
+
+// Vlakken die nu zichtbaar zijn gegeven het bronhouder-filter
+function visibleVlakken() {
+  if (state.bronFilter === 'all') return state.vlakken;
+  return state.vlakken.filter(v => v.bronhouder === state.bronFilter);
+}
+
+// ── Render list ────────────────────────────────────────────
+function renderList() {
+  refreshBronFilter();
+  const list  = document.getElementById('address-list');
+  const badge = document.getElementById('count-badge');
+  const btn   = document.getElementById('btn-export');
+  const shown = visibleVlakken();
+  badge.textContent = state.bronFilter === 'all'
+    ? state.vlakken.length
+    : `${shown.length}/${state.vlakken.length}`;
+  btn.disabled = shown.length === 0;
+
+  if (!state.vlakken.length) {
+    list.innerHTML = `<div id="empty-state">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+      <p>Nog geen vlakken geselecteerd.<br/>Klik op een BGT-vlak of teken een polygoon.</p>
+    </div>`;
+    return;
+  }
+
+  if (!shown.length) {
+    list.innerHTML = `<div id="empty-state">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+      <p>Geen vlakken met bronhouder<br/><b>${niceFieldValue(state.bronFilter)}</b>.</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const v of shown) {
+    const chip = document.createElement('div');
+    chip.className = 'addr-chip addr-chip--vlak';
+    const meta = [
+      niceFieldValue(v.functie),
+      v.plusFysiek ? 'Plus: ' + niceFieldValue(v.plusFysiek) : '',
+      v.opp ? v.opp.toLocaleString('nl-NL') + ' m²' : '',
+    ].filter(x => x && x !== '—').join(' · ');
+
+    const bron = v.bronhouder
+      ? `<div class="addr-chip-meta" style="margin-top:2px;">Bronhouder: ${niceFieldValue(v.bronhouder)}</div>`
+      : '';
+
+    const attrRows = vlakAttrRows(v).map(([k, val]) =>
+      `<div class="attr-row"><span class="attr-key">${k}</span><span class="attr-val">${val}</span></div>`
+    ).join('');
+
+    chip.innerHTML = `
+      <div class="addr-chip-text">
+        <div class="addr-chip-main">${vlakLabel(v)}</div>
+        <div class="addr-chip-meta" style="margin-top:2px;"><span class="addr-chip-doel">${meta || 'geen attributen'}</span></div>
+        ${bron}
+        <button class="attr-toggle" type="button">Toon alle attributen ▾</button>
+        <div class="attr-table" style="display:none;">${attrRows}</div>
+      </div>
+      <button class="addr-chip-del" title="Verwijder" data-id="${v.id}">×</button>`;
+
+    chip.querySelector('.addr-chip-del').addEventListener('click', e => {
+      e.stopPropagation();
+      removeVlak(v.id);
+    });
+
+    const toggle = chip.querySelector('.attr-toggle');
+    const table  = chip.querySelector('.attr-table');
+    toggle.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = table.style.display === 'none';
+      table.style.display = open ? 'block' : 'none';
+      toggle.textContent = open ? 'Verberg attributen ▴' : 'Toon alle attributen ▾';
+    });
+
+    chip.addEventListener('click', e => {
+      if (e.target.closest('.addr-chip-del') || e.target.closest('.attr-toggle') || e.target.closest('.attr-table')) return;
+      map.setView([v.lat, v.lon], Math.max(map.getZoom(), 18));
+      v._layer && v._layer.openPopup();
+    });
+    list.appendChild(chip);
+  }
+}
+
+// ── Clear ──────────────────────────────────────────────────
+document.getElementById('btn-clear').addEventListener('click', () => {
+  selLayer.clearLayers();
+  markers.clearLayers();
+  state.vlakken = [];
+  clearPolyDraw();
+  renderList();
+  if (dlStatus) dlStatus.style.display = 'none';
+  showToast('Selectie gewist');
+});
+
+// ── Export CSV ─────────────────────────────────────────────
+document.getElementById('btn-export').addEventListener('click', exportCsv);
+
+function exportCsv() {
+  const data = visibleVlakken();
+  if (!data.length) return;
+
+  // Verzamel alle voorkomende attribuutsleutels over de (zichtbare) selectie heen
+  const attrKeys = [];
+  const seen = new Set();
+  for (const v of data) {
+    for (const k of Object.keys(v.props || {})) {
+      if (isHiddenField(k) || seen.has(k)) continue;
+      seen.add(k); attrKeys.push(k);
+    }
+  }
+  attrKeys.sort();
+
+  // Vaste kolommen voorop, daarna alle attributen, dan berekende velden
+  const header = ['objecttype', ...attrKeys, 'oppervlakte_m2', 'lat', 'lon'];
+
+  const esc = x => `"${String(x ?? '').replace(/"/g, '""')}"`;
+  const rows = data.map(v => {
+    const p = v.props || {};
+    const cells = [v.objecttype];
+    for (const k of attrKeys) {
+      const val = Array.isArray(p[k]) ? p[k].join('; ') : (p[k] ?? '');
+      cells.push(val);
+    }
+    cells.push(v.opp || '', v.lat.toFixed(7), v.lon.toFixed(7));
+    return cells.map(esc).join(',');
+  });
+
+  const csv  = [header.map(esc).join(','), ...rows].join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `bgt-vlakken-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  showToast(`${data.length} vlakken geëxporteerd`);
+}
+
+// ── BGT Download service ───────────────────────────────────
+// Officieel BGT-extract voor het getekende polygoon via de PDOK BGT Download API.
+// Flow: POST full/custom (met WKT-geofilter in EPSG:28992) → status pollen → ZIP downloaden.
+const BGT_DOWNLOAD_API = 'https://api.pdok.nl/lv/bgt/download/v1_0';
+
+// WGS84 (lat, lon) → RD New (EPSG:28992) X,Y.
+// Benadering van Schreutelkamp & Strang van Hees, nauwkeurigheid ~ enkele cm.
+function wgs84ToRd(lat, lon) {
+  const X0 = 155000, Y0 = 463000;
+  const phi0 = 52.15517440, lam0 = 5.38720621;
+  const dPhi = 0.36 * (lat - phi0);
+  const dLam = 0.36 * (lon - lam0);
+
+  const Rp = [
+    [0, 1, 190094.945], [1, 1, -11832.228], [2, 1, -114.221],
+    [0, 3, -32.391], [1, 0, -0.705], [3, 1, -2.340],
+    [1, 3, -0.608], [0, 2, -0.008], [2, 3, 0.148],
+  ];
+  const Pp = [
+    [1, 0, 309056.544], [0, 2, 3638.893], [2, 0, 73.077],
+    [1, 2, -157.984], [3, 0, 59.788], [0, 1, 0.433],
+    [2, 2, -6.439], [1, 1, -0.032], [0, 4, 0.092], [1, 4, -0.054],
+  ];
+
+  let X = X0, Y = Y0;
+  for (const [p, q, c] of Rp) X += c * Math.pow(dPhi, p) * Math.pow(dLam, q);
+  for (const [p, q, c] of Pp) Y += c * Math.pow(dPhi, p) * Math.pow(dLam, q);
+  return [X, Y];
+}
+
+// Maak een WKT POLYGON (EPSG:28992) van de getekende ring ([[lat,lon],...])
+function ringToWktRd(ring) {
+  // Sluit de ring (eerste punt == laatste punt)
+  const pts = ring.slice();
+  const [flat, flon] = pts[0];
+  const [llat, llon] = pts[pts.length - 1];
+  if (flat !== llat || flon !== llon) pts.push([flat, flon]);
+  const coords = pts.map(([la, lo]) => {
+    const [x, y] = wgs84ToRd(la, lo);
+    return `${x.toFixed(3)} ${y.toFixed(3)}`;
+  }).join(',');
+  return `POLYGON((${coords}))`;
+}
+
+const btnDownload = document.getElementById('btn-download');
+const dlHint      = document.getElementById('download-hint');
+const dlStatus    = document.getElementById('download-status');
+
+function updateDownloadButton() {
+  const ready = !!(state.polyRing && state.polyRing.length >= 3) && !state.downloadBusy;
+  btnDownload.disabled = !ready;
+  btnDownload.title = ready ? 'Download het BGT-extract voor deze polygoon'
+                            : 'Teken eerst een polygoon';
+  const label = document.getElementById('btn-download-label');
+  if (!state.downloadBusy) {
+    label.textContent = state.polyRing
+      ? 'BGT downloaden (polygoon)'
+      : 'BGT downloaden (polygoon)';
+    dlHint.textContent = state.polyRing
+      ? `Polygoon klaar — download het BGT-extract (${activeTypes().length === 1 ? BGT_LABELS[activeTypes()[0]] : 'alle vlaktypen'}) voor dit gebied.`
+      : 'Teken een polygoon om het officiële BGT-extract voor dat gebied te downloaden.';
+  }
+}
+
+function setDlStatus(msg, cls, progress) {
+  dlStatus.style.display = 'block';
+  dlStatus.className = cls || '';
+  let html = msg;
+  if (typeof progress === 'number') {
+    html += `<div class="dl-progress"><div style="width:${Math.max(2, progress)}%"></div></div>`;
+  }
+  dlStatus.innerHTML = html;
+}
+
+btnDownload.addEventListener('click', startBgtDownload);
+
+async function startBgtDownload() {
+  if (!state.polyRing || state.polyRing.length < 3 || state.downloadBusy) return;
+
+  state.downloadBusy = true;
+  btnDownload.classList.add('busy');
+  document.getElementById('btn-download-label').textContent = 'Bezig met genereren…';
+  updateDownloadButton();
+  setDlStatus('Downloadverzoek aanmaken…', '', 1);
+
+  // Featuretypes: gebruik objecttype-filter, of een ruime standaardset bij 'alle vlakken'
+  const featuretypes = state.typeFilter === 'all'
+    ? ['wegdeel','waterdeel','begroeidterreindeel','onbegroeidterreindeel',
+       'ondersteunendwegdeel','ondersteunendwaterdeel','overbruggingsdeel',
+       'pand','overigbouwwerk','scheiding','kunstwerkdeel','tunneldeel']
+    : [downloadFeatureType(state.typeFilter)];
+
+  const fmt = (document.getElementById('download-format') || {}).value || 'citygml';
+  const body = {
+    featuretypes,
+    format: fmt,                             // citygml | gmllight | stufgeo
+    geofilter: ringToWktRd(state.polyRing),
+  };
+
+  try {
+    const res = await fetch(`${BGT_DOWNLOAD_API}/full/custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status !== 202) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Aanmaken mislukt (HTTP ${res.status}). ${txt.slice(0,120)}`);
+    }
+
+    const obj = await res.json();
+    const statusPath = obj?._links?.status?.href;
+    if (!statusPath) throw new Error('Geen status-URL ontvangen van de API.');
+    const statusUrl = new URL(statusPath, BGT_DOWNLOAD_API).href;
+
+    // Status pollen tot COMPLETED
+    let downloadHref = null;
+    for (let i = 0; i < 150; i++) {       // ~5 min bij 2s interval
+      await sleep(2000);
+      const sRes = await fetch(statusUrl, { headers: { 'Accept': 'application/json' } });
+      if (!sRes.ok) throw new Error(`Status opvragen mislukt (HTTP ${sRes.status}).`);
+      const s = await sRes.json();
+      const st = s.status;
+      if (st === 'COMPLETED') {
+        downloadHref = s?._links?.download?.href;
+        setDlStatus('Klaar! Download starten…', 'ok', 100);
+        break;
+      } else if (st === 'PENDING' || st === 'RUNNING') {
+        const pct = typeof s.progress === 'number' ? s.progress : 0;
+        setDlStatus(`Extract genereren bij PDOK… (${pct}%)`, '', pct || 3);
+      } else {
+        throw new Error(`Onverwachte status: ${st}`);
+      }
+    }
+
+    if (!downloadHref) throw new Error('Time-out: het extract was niet op tijd gereed.');
+    const downloadUrl = new URL(downloadHref, statusUrl).href;
+
+    // Trigger de download in een nieuw tabblad
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.rel = 'noopener';
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setDlStatus(`BGT-extract gereed. <a href="${downloadUrl}" target="_blank" rel="noopener">Download opnieuw</a> als het tabblad niet opende.`, 'ok');
+    showToast('BGT-download gestart');
+  } catch (e) {
+    console.error('[BGT download]', e);
+    setDlStatus(`Download mislukt: ${e.message}`, 'err');
+    showToast('BGT-download mislukt');
+  } finally {
+    state.downloadBusy = false;
+    btnDownload.classList.remove('busy');
+    document.getElementById('btn-download-label').textContent = 'BGT downloaden (polygoon)';
+    updateDownloadButton();
+  }
+}
+
+// Sommige collectie-namen wijken af van de download-API featuretype-namen
+function downloadFeatureType(type) {
+  const map = {
+    scheiding_vlak: 'scheiding',
+    kunstwerkdeel_vlak: 'kunstwerkdeel',
+  };
+  return map[type] || type;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Init knop-status
+updateDownloadButton();
+
+// ── UI helpers ─────────────────────────────────────────────
+function showLoading(on) { loadingOverlay.style.display = on ? 'flex' : 'none'; }
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = 'none'; }, 2800);
+}
+</script>
+</body>
+</html>
